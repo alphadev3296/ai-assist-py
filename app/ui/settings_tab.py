@@ -100,7 +100,6 @@ def handle_settings_events(
             response = sg.popup_yes_no(
                 "You are about to overwrite the existing API key.\n\nDo you want to continue?",
                 title="Confirm API Key Change",
-                default_button="No",
             )
             if response != "Yes":
                 logger.info("API key change cancelled by user")

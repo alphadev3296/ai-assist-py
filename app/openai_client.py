@@ -101,7 +101,7 @@ class StreamQueue:
         self._error = error
         self.queue.put(None)  # Sentinel value
 
-    def get_token(self, timeout: float = 0.1) -> str | None:
+    def get_token(self, timeout: float = 0.01) -> str | None:
         """
         Get next token from queue.
 

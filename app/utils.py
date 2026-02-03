@@ -1,8 +1,10 @@
 """Utility functions for the AI Assistant application."""
 
 import base64
+import re
 from pathlib import Path
 
+import markdown
 from loguru import logger
 
 from app.enums import FileExtension, MessageRole
@@ -198,3 +200,43 @@ def format_preset_messages_for_openai(
         {"role": MessageRole.SYSTEM.value, "content": system_prompt},
         {"role": MessageRole.USER.value, "content": user_content},
     ]
+
+
+def render_markdown_to_text(content: str) -> str:
+    """Convert markdown to formatted plain text for display in GUI.
+
+    Args:
+        content: Markdown content string.
+
+    Returns:
+        Formatted plain text with simple markdown rendering.
+    """
+    # Convert markdown to HTML first
+    html = markdown.markdown(content, extensions=["fenced_code", "tables", "nl2br"])
+
+    # Strip HTML tags for plain text display
+    text = re.sub(r"<br\s*/?>", "\n", html)
+    text = re.sub(r"<p>", "", text)
+    text = re.sub(r"</p>", "\n\n", text)
+    text = re.sub(r"<h1>(.*?)</h1>", r"# \1\n", text)
+    text = re.sub(r"<h2>(.*?)</h2>", r"## \1\n", text)
+    text = re.sub(r"<h3>(.*?)</h3>", r"### \1\n", text)
+    text = re.sub(r"<h4>(.*?)</h4>", r"#### \1\n", text)
+    text = re.sub(r"<h5>(.*?)</h5>", r"##### \1\n", text)
+    text = re.sub(r"<h6>(.*?)</h6>", r"###### \1\n", text)
+    text = re.sub(r"<strong>(.*?)</strong>", r"**\1**", text)
+    text = re.sub(r"<em>(.*?)</em>", r"*\1*", text)
+    text = re.sub(r"<code>(.*?)</code>", r"`\1`", text)
+    text = re.sub(r"<pre><code[^>]*>(.*?)</code></pre>", r"```\n\1\n```", text, flags=re.DOTALL)
+    text = re.sub(r"<ul>", "", text)
+    text = re.sub(r"</ul>", "\n", text)
+    text = re.sub(r"<ol>", "", text)
+    text = re.sub(r"</ol>", "\n", text)
+    text = re.sub(r"<li>(.*?)</li>", r"  • \1\n", text)
+    text = re.sub(r"<a[^>]*>(.*?)</a>", r"\1", text)
+    text = re.sub(r"<[^>]+>", "", text)  # Remove any remaining HTML tags
+
+    # Clean up excessive newlines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()

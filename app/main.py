@@ -66,7 +66,7 @@ class AIAssistantApp:
             preset_layout = create_preset_tab(preset, self.db)
             preset_tabs.append(
                 sg.Tab(
-                    f"Preset: {preset.name}",
+                    preset.name,
                     preset_layout,
                     key=f"-TAB-PRESET-{preset.id}-",
                 )
@@ -107,8 +107,24 @@ class AIAssistantApp:
     def _refresh_window(self) -> None:
         """Refresh the entire window (recreate with updated presets)."""
         if self.window:
+            # Remember active tab
+            active_tab = None
+            try:
+                active_tab = self.window["-TABGROUP-"].get()
+            except Exception:
+                pass
+
             self.window.close()
-        self._create_window()
+            self._create_window()
+
+            # Restore active tab
+            if active_tab and self.window:
+                try:
+                    self.window["-TABGROUP-"].Widget.select(active_tab)
+                except Exception:
+                    pass
+        else:
+            self._create_window()
         logger.info("Window refreshed")
 
     def run(self) -> None:

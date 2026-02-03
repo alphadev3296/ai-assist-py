@@ -151,6 +151,7 @@ def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
                 scrollable=True,
                 vertical_scroll_only=True,
                 expand_y=True,
+                size=(400, None),
             ),
             sg.VerticalSeparator(),
             sg.Column(right_panel, vertical_alignment="top", expand_x=True, expand_y=True),
@@ -288,7 +289,6 @@ def handle_preset_events(
                 response = sg.popup_yes_no(
                     "Are you sure you want to remove this field?",
                     title="Confirm Remove",
-                    default_button="No",
                 )
                 if response == "Yes":
                     state.db.delete_preset_field(field_id)
@@ -311,7 +311,6 @@ def handle_preset_events(
                 response = sg.popup_yes_no(
                     "Are you sure you want to clear all field values?",
                     title="Confirm Clear",
-                    default_button="No",
                 )
                 if response == "Yes":
                     state.db.clear_preset_field_values(preset_id)
@@ -340,7 +339,6 @@ def handle_preset_events(
                         f"Are you sure you want to delete preset '{preset.name}'?\n\n"
                         f"This will also delete all fields and response history.",
                         title="Confirm Delete",
-                        default_button="No",
                     )
                     if response == "Yes":
                         state.db.delete_preset(preset_id)

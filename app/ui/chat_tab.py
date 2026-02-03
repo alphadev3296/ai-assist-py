@@ -14,6 +14,7 @@ from app.utils import (
     format_image_content,
     read_image_file,
     read_text_file,
+    render_markdown_to_text,
     truncate_text,
 )
 
@@ -45,7 +46,7 @@ def create_chat_tab(db: Database) -> list[list[sg.Element]]:
     """
     # Load existing chats
     chats = db.get_all_chats()
-    chat_names = [f"{chat.id}: {chat.name}" for chat in chats]
+    chat_names = [chat.name for chat in chats]
 
     # Left panel - chat list
     left_panel = [
@@ -97,7 +98,7 @@ def create_chat_tab(db: Database) -> list[list[sg.Element]]:
 
     layout = [
         [
-            sg.Column(left_panel, vertical_alignment="top", expand_y=True),
+            sg.Column(left_panel, vertical_alignment="top", expand_y=True, size=(250, None)),
             sg.VerticalSeparator(),
             sg.Column(right_panel, vertical_alignment="top", expand_x=True, expand_y=True),
         ]
@@ -116,7 +117,7 @@ def refresh_chat_list(window: sg.Window, db: Database, selected_chat_id: int | N
         selected_chat_id: ID of chat to select after refresh
     """
     chats = db.get_all_chats()
-    chat_names = [f"{chat.id}: {chat.name}" for chat in chats]
+    chat_names = [chat.name for chat in chats]
     window["-CHAT-LIST-"].update(values=chat_names)
 
     # Reselect chat if specified
@@ -144,7 +145,9 @@ def load_chat_messages(window: sg.Window, db: Database, chat_id: int) -> None:
         if msg.role is MessageRole.USER:
             history_text += f"👤 You:\n{msg.content}\n\n"
         elif msg.role is MessageRole.ASSISTANT:
-            history_text += f"🤖 Assistant:\n{msg.content}\n\n"
+            # Render markdown for assistant messages
+            rendered_content = render_markdown_to_text(msg.content)
+            history_text += f"🤖 Assistant:\n{rendered_content}\n\n"
 
     window["-CHAT-HISTORY-"].update(history_text)
 
@@ -185,11 +188,14 @@ def handle_chat_events(
             current = window["-CHAT-HISTORY-"].get()
             window["-CHAT-HISTORY-"].update(current + token)
         elif state.stream_queue.is_complete():
-            # Streaming complete
+            # Streaming complete - reload messages with markdown rendering
             state.is_streaming = False
             window["-CHAT-SEND-"].update(disabled=False)
             window["-CHAT-STOP-"].update(disabled=True)
             window["-CHAT-STATUS-"].update("", text_color="black")
+            # Reload and re-render all messages with markdown
+            if state.current_chat_id:
+                load_chat_messages(window, state.db, state.current_chat_id)
         elif state.stream_queue.has_error():
             # Streaming error
             error = state.stream_queue.get_error()
@@ -217,12 +223,15 @@ def handle_chat_events(
         # Chat selected from list
         if values["-CHAT-LIST-"]:
             selected = values["-CHAT-LIST-"][0]
-            # Extract chat ID from "ID: Name" format
-            chat_id = int(selected.split(":")[0])
-            state.current_chat_id = chat_id
-            load_chat_messages(window, state.db, chat_id)
-            window["-CHAT-STATUS-"].update("")
-            logger.info(f"Loaded chat: {chat_id}")
+            # Find chat by name
+            chats = state.db.get_all_chats()
+            for chat in chats:
+                if chat.name == selected:
+                    state.current_chat_id = chat.id
+                    load_chat_messages(window, state.db, chat.id)
+                    window["-CHAT-STATUS-"].update("")
+                    logger.info(f"Loaded chat: {chat.id}")
+                    break
 
     elif event == "Rename Chat":
         # Rename selected chat
@@ -230,7 +239,7 @@ def handle_chat_events(
             sg.popup_error("No chat selected!", title="Error")
             return
 
-        chat = state.db.get_chat(state.current_chat_id)
+        chat = state.db.get_chat(state.current_chat_id)  # type: ignore[assignment]
         if not chat:
             return
 
@@ -256,7 +265,7 @@ def handle_chat_events(
             sg.popup_error("No chat selected!", title="Error")
             return
 
-        chat = state.db.get_chat(state.current_chat_id)
+        chat = state.db.get_chat(state.current_chat_id)  # type: ignore[assignment]
         if not chat:
             return
 
@@ -264,7 +273,6 @@ def handle_chat_events(
             f"Are you sure you want to delete chat '{chat.name}'?\n\n"
             f"This will also delete all messages in this chat.",
             title="Confirm Delete",
-            default_button="No",
         )
 
         if response == "Yes":
