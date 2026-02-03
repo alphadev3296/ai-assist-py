@@ -5,15 +5,15 @@ from pathlib import Path
 import FreeSimpleGUI as sg
 from loguru import logger
 
-from .db import Database
-from .ui.chat_tab import ChatTabState, create_chat_tab, handle_chat_events
-from .ui.preset_tab import (
+from app.db import Database
+from app.ui.chat_tab import ChatTabState, create_chat_tab, handle_chat_events
+from app.ui.preset_tab import (
     PresetTabState,
     create_new_preset_tab,
     create_preset_tab,
     handle_preset_events,
 )
-from .ui.settings_tab import create_settings_tab, handle_settings_events
+from app.ui.settings_tab import create_settings_tab, handle_settings_events
 
 
 class AIAssistantApp:
@@ -82,7 +82,17 @@ class AIAssistantApp:
             sg.Tab("Settings", settings_layout, key="-TAB-SETTINGS-"),
         ] + preset_tabs
 
-        layout = [[sg.TabGroup([all_tabs], key="-TABGROUP-", enable_events=True)]]
+        layout = [
+            [
+                sg.TabGroup(
+                    [all_tabs],
+                    key="-TABGROUP-",
+                    enable_events=True,
+                    expand_x=True,
+                    expand_y=True,
+                )
+            ]
+        ]
 
         self.window = sg.Window(
             "AI Assistant",

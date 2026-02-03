@@ -5,10 +5,10 @@ from typing import Any
 import FreeSimpleGUI as sg
 from loguru import logger
 
-from ..db import Database
-from ..enums import FileExtension, MessageRole
-from ..openai_client import StreamingClient, StreamQueue
-from ..utils import (
+from app.db import Database
+from app.enums import FileExtension, MessageRole
+from app.openai_client import StreamingClient, StreamQueue
+from app.utils import (
     format_chat_messages_for_openai,
     format_file_content,
     format_image_content,
@@ -57,6 +57,7 @@ def create_chat_tab(db: Database) -> list[list[sg.Element]]:
                 key="-CHAT-LIST-",
                 enable_events=True,
                 right_click_menu=["&Right", ["Rename Chat", "Delete Chat"]],
+                expand_y=True,
             )
         ],
         [sg.Button("New Chat", key="-CHAT-NEW-", size=(28, 1))],
@@ -72,6 +73,8 @@ def create_chat_tab(db: Database) -> list[list[sg.Element]]:
                 disabled=True,
                 autoscroll=True,
                 write_only=False,
+                expand_x=True,
+                expand_y=True,
             )
         ],
         [sg.Text("Your Message:")],
@@ -81,6 +84,7 @@ def create_chat_tab(db: Database) -> list[list[sg.Element]]:
                 key="-CHAT-INPUT-",
                 enable_events=True,
                 return_keyboard_events=True,
+                expand_x=True,
             )
         ],
         [
@@ -94,7 +98,7 @@ def create_chat_tab(db: Database) -> list[list[sg.Element]]:
 
     layout = [
         [
-            sg.Column(left_panel, vertical_alignment="top"),
+            sg.Column(left_panel, vertical_alignment="top", expand_y=True),
             sg.VerticalSeparator(),
             sg.Column(right_panel, vertical_alignment="top", expand_x=True, expand_y=True),
         ]

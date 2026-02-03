@@ -5,7 +5,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from .enums import FileExtension, MessageRole
+from app.enums import FileExtension, MessageRole
 
 
 def read_text_file(file_path: str) -> str | None:

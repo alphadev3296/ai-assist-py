@@ -7,9 +7,9 @@ from loguru import logger
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from .enums import MessageRole
-from .models import Chat, Message, Preset, PresetField, PresetRun, Settings
-from .orm_models import (
+from app.enums import MessageRole
+from app.models import Chat, Message, Preset, PresetField, PresetRun, Settings
+from app.orm_models import (
     Base,
     ChatModel,
     MessageModel,

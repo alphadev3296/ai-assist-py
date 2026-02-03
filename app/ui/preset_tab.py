@@ -10,10 +10,10 @@ from typing import Any
 import FreeSimpleGUI as sg
 from loguru import logger
 
-from ..db import Database
-from ..models import Preset
-from ..openai_client import StreamingClient, StreamQueue
-from ..utils import format_preset_messages_for_openai
+from app.db import Database
+from app.models import Preset
+from app.openai_client import StreamingClient, StreamQueue
+from app.utils import format_preset_messages_for_openai
 
 
 class PresetTabState:
@@ -72,6 +72,7 @@ def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
                 size=(50, 5),
                 key=f"-PRESET-{preset.id}-SYSPROMPT-",
                 enable_events=True,
+                expand_x=True,
             )
         ],
         [sg.Text("Fields:", font=("Arial", 10, "bold"))],
@@ -88,6 +89,7 @@ def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
                         size=(48, 1),
                         key=f"-PRESET-{preset.id}-FIELD-{field.id}-NAME-",
                         enable_events=True,
+                        expand_x=True,
                     ),
                     sg.Button(
                         "Remove",
@@ -101,6 +103,7 @@ def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
                         default_text=field.field_value,
                         size=(50, 3),
                         key=f"-PRESET-{preset.id}-FIELD-{field.id}-VALUE-",
+                        expand_x=True,
                         enable_events=True,
                     )
                 ],
@@ -134,8 +137,8 @@ def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
                 default_text=history_text,
                 size=(60, 35),
                 key=f"-PRESET-{preset.id}-HISTORY-",
-                disabled=True,
-                autoscroll=True,
+                expand_x=True,
+                expand_y=True,
             )
         ],
     ]
@@ -147,10 +150,10 @@ def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
                 vertical_alignment="top",
                 scrollable=True,
                 vertical_scroll_only=True,
-                size=(550, 600),
+                expand_y=True,
             ),
             sg.VerticalSeparator(),
-            sg.Column(right_panel, vertical_alignment="top"),
+            sg.Column(right_panel, vertical_alignment="top", expand_x=True, expand_y=True),
         ]
     ]
 

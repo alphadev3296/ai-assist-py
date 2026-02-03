@@ -5,10 +5,10 @@ from typing import Any
 import FreeSimpleGUI as sg
 from loguru import logger
 
-from ..db import Database
-from ..enums import OpenAIModel
-from ..models import Settings
-from ..utils import validate_api_key
+from app.db import Database
+from app.enums import OpenAIModel
+from app.models import Settings
+from app.utils import validate_api_key
 
 
 def create_settings_tab(db: Database) -> list[list[sg.Element]]:
@@ -34,6 +34,7 @@ def create_settings_tab(db: Database) -> list[list[sg.Element]]:
                 key="-SETTINGS-API-KEY-",
                 size=(50, 1),
                 password_char="*",
+                expand_x=True,
             ),
         ],
         [sg.Text("")],
@@ -45,6 +46,7 @@ def create_settings_tab(db: Database) -> list[list[sg.Element]]:
                 key="-SETTINGS-MODEL-",
                 size=(30, 1),
                 readonly=True,
+                expand_x=True,
             ),
         ],
         [sg.Text("")],
