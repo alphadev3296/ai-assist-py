@@ -41,15 +41,29 @@ class FileExtension(StrEnum):
 
 
 class OpenAIModel(StrEnum):
-    """Available OpenAI models."""
+    """
+    Practical, currently recommended OpenAI models (February 2026).
 
-    GPT_4O = "gpt-4o"
-    GPT_4O_MINI = "gpt-4o-mini"
-    GPT_4_TURBO = "gpt-4-turbo"
-    GPT_4 = "gpt-4"
-    GPT_35_TURBO = "gpt-3.5-turbo"
+    - GPT-5 family is now the flagship & default for most serious use.
+    - GPT-4o family is legacy → avoid for new projects (retiring soon in ChatGPT).
+    - Removed speculative/future/deprecated names.
+    """
+
+    # Flagship / best quality (recommended for accuracy & complex tasks)
+    GPT_5_2 = "gpt-5.2"  # Current top model – best for coding, agentic work, reasoning
+    GPT_5 = "gpt-5"  # Still very capable (previous flagship)
+    GPT_5_PRO = "gpt-5-pro"  # Enhanced version for Pro users (smarter, more precise)
+
+    # Fast & cheap – high volume, agents, everyday use
+    GPT_5_MINI = "gpt-5-mini"  # Best price/performance balance right now
+    GPT_5_NANO = "gpt-5-nano"  # Fastest & cheapest variant
+
+    @classmethod
+    def recommended_default(cls) -> str:
+        """What you should use as default in February 2026"""
+        return cls.GPT_5_2.value  # Current best overall model
 
     @classmethod
     def get_all_values(cls) -> list[str]:
-        """Get all model values as a list."""
+        """All still-realistic models (including short-term legacy)"""
         return [model.value for model in cls]
