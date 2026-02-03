@@ -83,7 +83,6 @@ def create_chat_tab(db: Database) -> list[list[sg.Element]]:
                 size=(80, 5),
                 key="-CHAT-INPUT-",
                 enable_events=True,
-                return_keyboard_events=True,
                 expand_x=True,
             )
         ],
