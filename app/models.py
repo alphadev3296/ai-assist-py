@@ -65,7 +65,7 @@ class Settings(BaseModel):
     openai_model: Annotated[
         str,
         Field(
-            default=OpenAIModel.GPT_4O_MINI.value,
+            default=OpenAIModel.recommended_default(),
             description="OpenAI model to use for completions",
         ),
     ] = OpenAIModel.recommended_default()
