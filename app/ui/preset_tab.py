@@ -1,4 +1,9 @@
-"""Preset tab UI for the AI Assistant application."""
+"""Preset tab UI for the AI Assistant application.
+
+This module provides UI components and event handling for managing preset templates.
+Users can create reusable prompt templates with custom fields, run them with different
+values, and view response history from previous runs.
+"""
 
 from typing import Any
 
@@ -12,10 +17,18 @@ from ..utils import format_preset_messages_for_openai
 
 
 class PresetTabState:
-    """State manager for preset tab."""
+    """State manager for preset tab.
+
+    Manages streaming state and database connections for preset operations.
+    Tracks active streaming operations per preset to prevent concurrent streams.
+    """
 
     def __init__(self, db: Database) -> None:
-        """Initialize preset tab state."""
+        """Initialize preset tab state.
+
+        Args:
+            db: Database instance for preset operations
+        """
         self.db = db
         self.streaming_client: StreamingClient | None = None
         self.stream_queue: StreamQueue | None = None
@@ -23,15 +36,17 @@ class PresetTabState:
 
 
 def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
-    """
-    Create a preset tab layout.
+    """Create a preset tab layout with configuration and response history.
+
+    Builds a two-column layout with system prompt editing, field management on the left,
+    and response history from previous runs on the right.
 
     Args:
-        preset: Preset instance
-        db: Database instance
+        preset: Preset instance containing name, system prompt, and ID
+        db: Database instance for loading fields and runs
 
     Returns:
-        Layout for preset tab
+        Complete layout structure as nested list of FreeSimpleGUI elements
     """
     # Load fields for this preset
     fields = db.get_preset_fields(preset.id)
@@ -143,11 +158,12 @@ def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
 
 
 def create_new_preset_tab() -> list[list[sg.Element]]:
-    """
-    Create the "+ New Preset" tab layout.
+    """Create the '+ New Preset' tab layout for creating new presets.
+
+    Provides a simple form with name input and create button.
 
     Returns:
-        Layout for new preset tab
+        Layout structure for new preset creation tab
     """
     layout = [
         [sg.Text("Create New Preset", font=("Arial", 14, "bold"))],
@@ -162,13 +178,14 @@ def create_new_preset_tab() -> list[list[sg.Element]]:
 
 
 def refresh_preset_history(window: sg.Window, preset_id: int, db: Database) -> None:
-    """
-    Refresh the response history for a preset.
+    """Refresh the response history display for a specific preset.
+
+    Loads all preset runs from database and formats them with timestamps.
 
     Args:
-        window: Main window
-        preset_id: Preset ID
-        db: Database instance
+        window: Main application window
+        preset_id: ID of preset to refresh
+        db: Database instance for loading runs
     """
     runs = db.get_preset_runs(preset_id)
     history_text = ""
@@ -186,15 +203,22 @@ def handle_preset_events(
     state: PresetTabState,
     on_preset_change: Any,  # Callback to refresh tabs
 ) -> None:
-    """
-    Handle events in preset tabs.
+    """Handle all preset tab events including streaming, CRUD operations, and field management.
+
+    Processes events for:
+    - Streaming token updates and completion
+    - System prompt and field value updates
+    - Field add/remove operations
+    - Preset rename/delete operations
+    - Send/stop streaming commands
+    - New preset creation
 
     Args:
-        event: Event string
-        values: Values dictionary
-        window: Main window
-        state: Preset tab state
-        on_preset_change: Callback when presets change (requires tab refresh)
+        event: FreeSimpleGUI event string (e.g., '-PRESET-123-SEND-')
+        values: Current window values dictionary
+        window: Main application window
+        state: Preset tab state manager
+        on_preset_change: Callback function to trigger tab refresh after modifications
     """
     # Check for streaming updates for any preset
     for preset_id, is_streaming in list(state.is_streaming.items()):

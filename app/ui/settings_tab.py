@@ -6,19 +6,19 @@ import FreeSimpleGUI as sg
 from loguru import logger
 
 from ..db import Database
+from ..enums import OpenAIModel
 from ..models import Settings
-from ..utils import OPENAI_MODELS, validate_api_key
+from ..utils import validate_api_key
 
 
 def create_settings_tab(db: Database) -> list[list[sg.Element]]:
-    """
-    Create the settings tab layout.
+    """Create the settings tab layout.
 
     Args:
-        db: Database instance
+        db: Database instance.
 
     Returns:
-        Layout for settings tab
+        Layout for settings tab.
     """
     # Load current settings
     settings = db.get_settings()
@@ -40,7 +40,7 @@ def create_settings_tab(db: Database) -> list[list[sg.Element]]:
         [
             sg.Text("Model:", size=(15, 1)),
             sg.Combo(
-                values=OPENAI_MODELS,
+                values=OpenAIModel.get_all_values(),
                 default_value=settings.openai_model,
                 key="-SETTINGS-MODEL-",
                 size=(30, 1),
@@ -63,14 +63,13 @@ def handle_settings_events(
     window: sg.Window,
     db: Database,
 ) -> None:
-    """
-    Handle events in the settings tab.
+    """Handle events in the settings tab.
 
     Args:
-        event: Event string
-        values: Values dictionary
-        window: Main window
-        db: Database instance
+        event: Event string.
+        values: Values dictionary.
+        window: Main window.
+        db: Database instance.
     """
     if event == "-SETTINGS-SAVE-":
         api_key = values["-SETTINGS-API-KEY-"].strip()

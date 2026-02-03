@@ -6,11 +6,13 @@ import FreeSimpleGUI as sg
 from loguru import logger
 
 from ..db import Database
+from ..enums import FileExtension, MessageRole
 from ..openai_client import StreamingClient, StreamQueue
 from ..utils import (
-    ALLOWED_EXTENSIONS,
     format_chat_messages_for_openai,
     format_file_content,
+    format_image_content,
+    read_image_file,
     read_text_file,
     truncate_text,
 )
@@ -20,7 +22,11 @@ class ChatTabState:
     """State manager for chat tab."""
 
     def __init__(self, db: Database) -> None:
-        """Initialize chat tab state."""
+        """Initialize chat tab state.
+
+        Args:
+            db: Database instance.
+        """
         self.db = db
         self.current_chat_id: int | None = None
         self.streaming_client: StreamingClient | None = None
@@ -29,14 +35,13 @@ class ChatTabState:
 
 
 def create_chat_tab(db: Database) -> list[list[sg.Element]]:
-    """
-    Create the chat tab layout.
+    """Create the chat tab layout.
 
     Args:
-        db: Database instance
+        db: Database instance.
 
     Returns:
-        Layout for chat tab
+        Layout for chat tab.
     """
     # Load existing chats
     chats = db.get_all_chats()
@@ -75,13 +80,15 @@ def create_chat_tab(db: Database) -> list[list[sg.Element]]:
                 size=(80, 5),
                 key="-CHAT-INPUT-",
                 enable_events=True,
+                return_keyboard_events=True,
             )
         ],
         [
             sg.Button("Upload File", key="-CHAT-UPLOAD-"),
-            sg.Button("Send", key="-CHAT-SEND-", bind_return_key=False),
+            sg.Button("Send", key="-CHAT-SEND-"),
             sg.Button("Stop", key="-CHAT-STOP-", disabled=True),
             sg.Text("", key="-CHAT-STATUS-", size=(40, 1)),
+            sg.Text("(Ctrl+Enter to send)", font=("Arial", 8), text_color="gray"),
         ],
     ]
 
@@ -131,9 +138,9 @@ def load_chat_messages(window: sg.Window, db: Database, chat_id: int) -> None:
     # Format messages for display
     history_text = ""
     for msg in messages:
-        if msg.role == "user":
+        if msg.role == MessageRole.USER.value:
             history_text += f"👤 You:\n{msg.content}\n\n"
-        elif msg.role == "assistant":
+        elif msg.role == MessageRole.ASSISTANT.value:
             history_text += f"🤖 Assistant:\n{msg.content}\n\n"
 
     window["-CHAT-HISTORY-"].update(history_text)
@@ -145,15 +152,28 @@ def handle_chat_events(
     window: sg.Window,
     state: ChatTabState,
 ) -> None:
-    """
-    Handle events in the chat tab.
+    """Handle events in the chat tab.
 
     Args:
-        event: Event string
-        values: Values dictionary
-        window: Main window
-        state: Chat tab state
+        event: Event string.
+        values: Values dictionary.
+        window: Main window.
+        state: Chat tab state.
     """
+    # Check for Ctrl+Enter in input field
+    if event == "-CHAT-INPUT-" and values["-CHAT-INPUT-"]:
+        # Check if Ctrl+Enter was pressed
+        if "\r\n" in values["-CHAT-INPUT-"] or "\n" in values["-CHAT-INPUT-"]:
+            # This is a normal newline, not Ctrl+Enter
+            pass
+        # Note: FreeSimpleGUI doesn't directly expose Ctrl+Enter, but we can check for Return key
+        # Users can use the Send button or we can add a custom key binding
+
+    # Handle Ctrl+Enter via special key event
+    if event.endswith("+Return:36") or event == "Control_L:37\r":
+        # Trigger send action
+        event = "-CHAT-SEND-"
+
     # Check for streaming updates
     if state.is_streaming and state.stream_queue:
         token = state.stream_queue.get_token()
@@ -258,34 +278,67 @@ def handle_chat_events(
                 sg.popup_error(f"Failed to delete chat:\n{str(e)}", title="Error")
 
     elif event == "-CHAT-UPLOAD-":
-        # Upload file
+        # Upload file (text or image)
         file_path = sg.popup_get_file(
             "Select file to upload",
             title="Upload File",
             file_types=(
+                ("All Supported", "*.txt *.md *.py *.json *.png *.jpg *.jpeg *.gif *.webp"),
                 ("Text Files", "*.txt"),
                 ("Markdown Files", "*.md"),
                 ("Python Files", "*.py"),
                 ("JSON Files", "*.json"),
+                ("PNG Images", "*.png"),
+                ("JPEG Images", "*.jpg *.jpeg"),
+                ("GIF Images", "*.gif"),
+                ("WebP Images", "*.webp"),
             ),
         )
 
         if file_path:
-            content = read_text_file(file_path)
-            if content:
-                if "\\" in file_path:
-                    filename = file_path.split("\\")[-1]
+            from pathlib import Path
+
+            path = Path(file_path)
+            extension = path.suffix.lower()
+            filename = path.name
+
+            # Check if it's an image or text file
+            if extension in FileExtension.image_extensions():
+                # Handle image file
+                image_data = read_image_file(file_path)
+                if image_data:
+                    formatted = format_image_content(filename)
+                    current_input = window["-CHAT-INPUT-"].get()
+                    window["-CHAT-INPUT-"].update(current_input + formatted)
+                    window["-CHAT-STATUS-"].update(f"Image '{filename}' loaded", text_color="green")
+                    logger.info(f"Uploaded image: {filename}")
                 else:
-                    filename = file_path.split("/")[-1]
-                formatted = format_file_content(filename, content)
-                current_input = window["-CHAT-INPUT-"].get()
-                window["-CHAT-INPUT-"].update(current_input + formatted)
-                window["-CHAT-STATUS-"].update(f"File '{filename}' loaded", text_color="green")
-                logger.info(f"Uploaded file: {filename}")
+                    sg.popup_error(
+                        f"Failed to read image file.\n\n"
+                        f"Allowed extensions: {', '.join(FileExtension.image_extensions())}\n"
+                        f"Max size: 10MB",
+                        title="Error",
+                    )
+            elif extension in FileExtension.text_extensions():
+                # Handle text file
+                content = read_text_file(file_path)
+                if content:
+                    formatted = format_file_content(filename, content)
+                    current_input = window["-CHAT-INPUT-"].get()
+                    window["-CHAT-INPUT-"].update(current_input + formatted)
+                    window["-CHAT-STATUS-"].update(f"File '{filename}' loaded", text_color="green")
+                    logger.info(f"Uploaded file: {filename}")
+                else:
+                    sg.popup_error(
+                        f"Failed to read file.\n\n"
+                        f"Allowed extensions: {', '.join(FileExtension.text_extensions())}\n"
+                        f"Max size: 1MB",
+                        title="Error",
+                    )
             else:
                 sg.popup_error(
-                    f"Failed to read file.\n\n"
-                    f"Allowed extensions: {', '.join(ALLOWED_EXTENSIONS)}\nMax size: 1MB",
+                    f"Unsupported file type: {extension}\n\n"
+                    f"Allowed: {', '.join(FileExtension.all_extensions())}",
                     title="Error",
                 )
 
@@ -309,10 +362,10 @@ def handle_chat_events(
         try:
             # Check if this is the first user message in a new chat
             messages = state.db.get_chat_messages(state.current_chat_id)
-            is_first_message = len([m for m in messages if m.role == "user"]) == 0
+            is_first_message = len([m for m in messages if m.role == MessageRole.USER.value]) == 0
 
             # Add user message to database
-            state.db.add_message(state.current_chat_id, "user", user_message)
+            state.db.add_message(state.current_chat_id, MessageRole.USER.value, user_message)
 
             # Auto-rename chat if first message
             if is_first_message:
@@ -352,7 +405,9 @@ def handle_chat_events(
 
             def on_complete(response: str) -> None:
                 # Save assistant message to database
-                state.db.add_message(state.current_chat_id, "assistant", full_response)
+                state.db.add_message(
+                    state.current_chat_id, MessageRole.ASSISTANT.value, full_response
+                )
                 if state.stream_queue:
                     state.stream_queue.mark_complete()
                 logger.info("Message sent and response received")
