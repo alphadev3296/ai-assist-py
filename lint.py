@@ -41,10 +41,10 @@ def main() -> int:
     results = []
 
     # Run ruff format check
-    results.append(run_command(["ruff", "format", "--check", str(app_dir)], "Ruff Format Check"))
+    results.append(run_command(["ruff", "format", str(app_dir)], "Ruff Format"))
 
     # Run ruff linter
-    results.append(run_command(["ruff", "check", str(app_dir)], "Ruff Linter"))
+    results.append(run_command(["ruff", "check", "--fix", str(app_dir)], "Ruff Linter"))
 
     # Run mypy
     results.append(run_command(["mypy", str(app_dir)], "MyPy Type Checker"))

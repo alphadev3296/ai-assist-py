@@ -1,9 +1,9 @@
 """Enumerations for the AI Assistant application."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class MessageRole(str, Enum):
+class MessageRole(StrEnum):
     """Message role in a conversation."""
 
     SYSTEM = "system"
@@ -11,7 +11,7 @@ class MessageRole(str, Enum):
     ASSISTANT = "assistant"
 
 
-class FileExtension(str, Enum):
+class FileExtension(StrEnum):
     """Allowed file extensions for upload."""
 
     TXT = ".txt"
@@ -40,7 +40,7 @@ class FileExtension(str, Enum):
         return cls.text_extensions() | cls.image_extensions()
 
 
-class OpenAIModel(str, Enum):
+class OpenAIModel(StrEnum):
     """Available OpenAI models."""
 
     GPT_4O = "gpt-4o"

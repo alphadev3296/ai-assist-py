@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import FreeSimpleGUI as sg
+import FreeSimpleGUI as sg  # type: ignore
 from loguru import logger
 
 from app.db import Database

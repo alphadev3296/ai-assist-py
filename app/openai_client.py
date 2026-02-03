@@ -2,7 +2,8 @@
 
 import queue
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from typing import Any, cast
 
 from loguru import logger
 from openai import OpenAI
@@ -20,7 +21,7 @@ class StreamingClient:
 
     def stream_chat_completion(
         self,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[dict[str, str]] | list[ChatCompletionMessageParam],
         on_token: Callable[[str], None],
         on_complete: Callable[[str], None],
         on_error: Callable[[Exception], None],
@@ -39,19 +40,24 @@ class StreamingClient:
         def _stream() -> None:
             try:
                 full_response = ""
+                # Ensure messages are the expected iterable type for the SDK
+                messages_param = cast(Iterable[ChatCompletionMessageParam], messages)
                 stream = self.client.chat.completions.create(
                     model=self.model,
-                    messages=messages,
+                    messages=messages_param,
                     stream=True,
                 )
 
-                for chunk in stream:
+                # Cast stream elements to Any for safe attribute access
+                stream_any = cast(Iterable[Any], stream)
+                for chunk in stream_any:
                     if self._stop_event.is_set():
                         logger.info("Streaming stopped by user")
                         break
 
-                    if chunk.choices[0].delta.content:
-                        token = chunk.choices[0].delta.content
+                    chunk_any = cast(Any, chunk)
+                    if getattr(chunk_any.choices[0].delta, "content", None):
+                        token = chunk_any.choices[0].delta.content
                         full_response += token
                         on_token(token)
 

@@ -61,14 +61,14 @@ class Settings(BaseModel):
     openai_api_key: Annotated[
         str,
         Field(default="", description="OpenAI API key for authentication"),
-    ]
+    ] = ""
     openai_model: Annotated[
         str,
         Field(
             default=OpenAIModel.GPT_4O_MINI.value,
             description="OpenAI model to use for completions",
         ),
-    ]
+    ] = OpenAIModel.GPT_4O_MINI.value
 
     @field_validator("openai_api_key")
     @classmethod

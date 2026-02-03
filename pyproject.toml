@@ -16,11 +16,10 @@ dev = ["ruff>=0.7.0", "mypy>=1.13.0", "nuitka>=2.5.0"]
 
 [tool.ruff]
 line-length = 100
-select = ["E", "F", "I", "B", "UP"]
 target-version = "py312"
-
 [tool.ruff.lint]
 ignore = []
+select = ["E", "F", "I", "B", "UP"]
 
 [tool.mypy]
 python_version = "3.12"

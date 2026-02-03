@@ -7,7 +7,7 @@ values, and view response history from previous runs.
 
 from typing import Any
 
-import FreeSimpleGUI as sg
+import FreeSimpleGUI as sg  # type: ignore
 from loguru import logger
 
 from app.db import Database

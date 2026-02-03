@@ -2,7 +2,7 @@
 
 from typing import Any
 
-import FreeSimpleGUI as sg
+import FreeSimpleGUI as sg  # type: ignore
 from loguru import logger
 
 from app.db import Database
@@ -142,9 +142,9 @@ def load_chat_messages(window: sg.Window, db: Database, chat_id: int) -> None:
     # Format messages for display
     history_text = ""
     for msg in messages:
-        if msg.role == MessageRole.USER.value:
+        if msg.role is MessageRole.USER:
             history_text += f"👤 You:\n{msg.content}\n\n"
-        elif msg.role == MessageRole.ASSISTANT.value:
+        elif msg.role is MessageRole.ASSISTANT:
             history_text += f"🤖 Assistant:\n{msg.content}\n\n"
 
     window["-CHAT-HISTORY-"].update(history_text)
@@ -385,7 +385,9 @@ def handle_chat_events(
 
             # Prepare messages for OpenAI
             messages = state.db.get_chat_messages(state.current_chat_id)
-            message_list = [(msg.role, msg.content) for msg in messages if msg.role != "system"]
+            message_list = [
+                (str(msg.role), msg.content) for msg in messages if str(msg.role) != "system"
+            ]
             formatted_messages = format_chat_messages_for_openai(message_list)
 
             # Setup streaming
@@ -409,9 +411,10 @@ def handle_chat_events(
 
             def on_complete(response: str) -> None:
                 # Save assistant message to database
-                state.db.add_message(
-                    state.current_chat_id, MessageRole.ASSISTANT.value, full_response
-                )
+                if state.current_chat_id is not None:
+                    state.db.add_message(
+                        state.current_chat_id, MessageRole.ASSISTANT.value, full_response
+                    )
                 if state.stream_queue:
                     state.stream_queue.mark_complete()
                 logger.info("Message sent and response received")
