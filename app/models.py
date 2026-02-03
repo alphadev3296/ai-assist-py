@@ -68,7 +68,7 @@ class Settings(BaseModel):
             default=OpenAIModel.GPT_4O_MINI.value,
             description="OpenAI model to use for completions",
         ),
-    ] = OpenAIModel.GPT_4O_MINI.value
+    ] = OpenAIModel.recommended_default()
 
     @field_validator("openai_api_key")
     @classmethod
