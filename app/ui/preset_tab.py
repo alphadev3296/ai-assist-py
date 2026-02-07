@@ -138,6 +138,8 @@ class PresetTab:
 
     def update_system_prompt(self, e: Any) -> None:
         """Update system prompt in database."""
+        if self.system_prompt_input is None:
+            return
         new_prompt = self.system_prompt_input.value
         self.db.update_preset(self.preset.id, self.preset.name, new_prompt)
         logger.debug(f"Updated system prompt for preset {self.preset.id}")
@@ -266,7 +268,8 @@ class PresetTab:
             history_html += f"{rendered}"
             history_html += "</div>"
 
-        self.history_area.set_content(history_html)
+        if self.history_area is not None:
+            self.history_area.set_content(history_html)
 
     async def check_streaming(self) -> None:
         """Check for streaming updates."""
@@ -276,22 +279,30 @@ class PresetTab:
         token = self.stream_queue.get_token()
         if token is not None:
             # Append token
-            current_html = self.history_area.content
-            self.history_area.set_content(current_html + token.replace("\n", "<br>"))
+            if self.history_area is not None:
+                current_html = self.history_area.content
+                self.history_area.set_content(current_html + token.replace("\n", "<br>"))
         elif self.stream_queue.is_complete():
             # Streaming complete
             self.is_streaming = False
-            self.send_button.set_enabled(True)
-            self.stop_button.set_enabled(False)
-            self.status_label.set_text("")
+            if self.send_button is not None:
+                self.send_button.set_enabled(True)
+            if self.stop_button is not None:
+                self.stop_button.set_enabled(False)
+            if self.status_label is not None:
+                self.status_label.set_text("")
             self.refresh_history()
         elif self.stream_queue.has_error():
             # Streaming error
             error = self.stream_queue.get_error()
             self.is_streaming = False
-            self.send_button.set_enabled(True)
-            self.stop_button.set_enabled(False)
-            self.status_label.set_text("Error occurred").style("color: red")
+            if self.send_button is not None:
+                self.send_button.set_enabled(True)
+            if self.stop_button is not None:
+                self.stop_button.set_enabled(False)
+            if self.status_label is not None:
+                self.status_label.set_text("Error occurred")
+                self.status_label.style("color: red")
             ui.notify(f"Error: {str(error)}", type="negative")
 
     async def send_preset(self) -> None:
@@ -318,6 +329,8 @@ class PresetTab:
 
         try:
             # Prepare messages
+            if self.system_prompt_input is None:
+                return
             system_prompt = self.system_prompt_input.value
             formatted_messages = format_preset_messages_for_openai(system_prompt, field_data)
 
@@ -329,13 +342,14 @@ class PresetTab:
             self.stream_queue = StreamQueue()
 
             # Add run header
-            current_html = self.history_area.content
-            run_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            run_header = (
-                f"<div style='margin-bottom: 1.5em;'>"
-                f"<strong>━━━ Run ({run_timestamp}) ━━━</strong><br>"
-            )
-            self.history_area.set_content(current_html + run_header)
+            if self.history_area is not None:
+                current_html = self.history_area.content
+                run_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                run_header = (
+                    f"<div style='margin-bottom: 1.5em;'>"
+                    f"<strong>━━━ Run ({run_timestamp}) ━━━</strong><br>"
+                )
+                self.history_area.set_content(current_html + run_header)
 
             full_response = ""
 
@@ -364,21 +378,31 @@ class PresetTab:
             )
 
             self.is_streaming = True
-            self.send_button.set_enabled(False)
-            self.stop_button.set_enabled(True)
-            self.status_label.set_text("Streaming...").style("color: blue")
+            if self.send_button is not None:
+                self.send_button.set_enabled(False)
+            if self.stop_button is not None:
+                self.stop_button.set_enabled(True)
+            if self.status_label is not None:
+                self.status_label.set_text("Streaming...")
+                self.status_label.style("color: blue")
 
         except Exception as e:
             logger.error(f"Failed to send preset: {e}")
             ui.notify(f"Error: {str(e)}", type="negative")
-            self.status_label.set_text("Error").style("color: red")
+            if self.status_label is not None:
+                self.status_label.set_text("Error")
+                self.status_label.style("color: red")
 
     async def stop_streaming(self) -> None:
         """Stop the streaming."""
         if self.streaming_client:
             self.streaming_client.stop_streaming()
             self.is_streaming = False
-            self.send_button.set_enabled(True)
-            self.stop_button.set_enabled(False)
-            self.status_label.set_text("Stopped").style("color: orange")
+            if self.send_button is not None:
+                self.send_button.set_enabled(True)
+            if self.stop_button is not None:
+                self.stop_button.set_enabled(False)
+            if self.status_label is not None:
+                self.status_label.set_text("Stopped")
+                self.status_label.style("color: orange")
             logger.info(f"Preset {self.preset.id} streaming stopped")

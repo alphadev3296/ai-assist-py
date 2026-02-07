@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from loguru import logger
 from sqlalchemy import create_engine, select
@@ -127,7 +128,7 @@ class Database:
                 session.commit()
                 session.refresh(chat)
                 logger.info(f"Created chat {chat.id}: {name}")
-                return chat.id
+                return cast(int, chat.id)
         except Exception as e:
             logger.error(f"Failed to create chat: {e}")
             raise
@@ -244,7 +245,7 @@ class Database:
                 session.commit()
                 session.refresh(message)
                 logger.debug(f"Added message {message.id} to chat {chat_id}")
-                return message.id
+                return cast(int, message.id)
         except Exception as e:
             logger.error(f"Failed to add message: {e}")
             raise
@@ -306,7 +307,7 @@ class Database:
                 session.commit()
                 session.refresh(preset)
                 logger.info(f"Created preset {preset.id}: {name}")
-                return preset.id
+                return cast(int, preset.id)
         except Exception as e:
             logger.error(f"Failed to create preset: {e}")
             raise
@@ -431,7 +432,7 @@ class Database:
                 session.commit()
                 session.refresh(field)
                 logger.debug(f"Added field {field.id} to preset {preset_id}")
-                return field.id
+                return cast(int, field.id)
         except Exception as e:
             logger.error(f"Failed to add preset field: {e}")
             raise
@@ -591,7 +592,7 @@ class Database:
                 session.commit()
                 session.refresh(run)
                 logger.info(f"Added run {run.id} for preset {preset_id}")
-                return run.id
+                return cast(int, run.id)
         except Exception as e:
             logger.error(f"Failed to add preset run: {e}")
             raise

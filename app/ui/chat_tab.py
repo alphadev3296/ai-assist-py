@@ -104,14 +104,18 @@ class ChatTab:
         token = self.stream_queue.get_token()
         if token is not None:
             # Append token to history
-            current_html = self.chat_history.content
-            self.chat_history.set_content(current_html + token.replace("\n", "<br>"))
+            if self.chat_history is not None:
+                current_html = self.chat_history.content
+                self.chat_history.set_content(current_html + token.replace("\n", "<br>"))
         elif self.stream_queue.is_complete():
             # Streaming complete
             self.is_streaming = False
-            self.send_button.set_enabled(True)
-            self.stop_button.set_enabled(False)
-            self.status_label.set_text("")
+            if self.send_button is not None:
+                self.send_button.set_enabled(True)
+            if self.stop_button is not None:
+                self.stop_button.set_enabled(False)
+            if self.status_label is not None:
+                self.status_label.set_text("")
             # Reload messages with proper formatting
             if self.current_chat_id:
                 await self.load_chat_messages(self.current_chat_id)
@@ -119,9 +123,13 @@ class ChatTab:
             # Streaming error
             error = self.stream_queue.get_error()
             self.is_streaming = False
-            self.send_button.set_enabled(True)
-            self.stop_button.set_enabled(False)
-            self.status_label.set_text("Error occurred").style("color: red")
+            if self.send_button is not None:
+                self.send_button.set_enabled(True)
+            if self.stop_button is not None:
+                self.stop_button.set_enabled(False)
+            if self.status_label is not None:
+                self.status_label.set_text("Error occurred")
+                self.status_label.style("color: red")
             ui.notify(f"Error: {str(error)}", type="negative")
 
     async def create_new_chat(self) -> None:
@@ -130,9 +138,13 @@ class ChatTab:
             chat_id = self.db.create_chat("New Chat")
             await self.refresh_chat_list(chat_id)
             self.current_chat_id = chat_id
-            self.chat_history.set_content("")
-            self.chat_input.value = ""
-            self.status_label.set_text("New chat created").style("color: green")
+            if self.chat_history is not None:
+                self.chat_history.set_content("")
+            if self.chat_input is not None:
+                self.chat_input.value = ""
+            if self.status_label is not None:
+                self.status_label.set_text("New chat created")
+                self.status_label.style("color: green")
             logger.info(f"Created new chat: {chat_id}")
         except Exception as e:
             logger.error(f"Failed to create chat: {e}")
@@ -142,16 +154,19 @@ class ChatTab:
         """Refresh the chat list."""
         chats = self.db.get_all_chats()
         chat_names = [chat.name for chat in chats]
-        self.chat_list.set_options(chat_names)
+        if self.chat_list is not None:
+            self.chat_list.set_options(chat_names)
 
-        if selected_chat_id:
-            for chat in chats:
-                if chat.id == selected_chat_id:
-                    self.chat_list.set_value(chat.name)
-                    break
+            if selected_chat_id:
+                for chat in chats:
+                    if chat.id == selected_chat_id:
+                        self.chat_list.set_value(chat.name)
+                        break
 
     async def on_chat_selected(self) -> None:
         """Handle chat selection."""
+        if self.chat_list is None:
+            return
         selected = self.chat_list.value
         if not selected:
             return
@@ -161,7 +176,8 @@ class ChatTab:
             if chat.name == selected:
                 self.current_chat_id = chat.id
                 await self.load_chat_messages(chat.id)
-                self.status_label.set_text("")
+                if self.status_label is not None:
+                    self.status_label.set_text("")
                 logger.info(f"Loaded chat: {chat.id}")
                 break
 
@@ -187,7 +203,8 @@ class ChatTab:
                     f"<strong>🤖 Assistant:</strong><br>{rendered}</div>"
                 )
 
-        self.chat_history.set_content(history_html)
+        if self.chat_history is not None:
+            self.chat_history.set_content(history_html)
 
     async def rename_chat(self) -> None:
         """Rename selected chat."""
@@ -212,7 +229,9 @@ class ChatTab:
                                 self.current_chat_id, new_name_input.value.strip()
                             )
                             await self.refresh_chat_list(self.current_chat_id)
-                        self.status_label.set_text("Chat renamed").style("color: green")
+                        if self.status_label is not None:
+                            self.status_label.set_text("Chat renamed")
+                            self.status_label.style("color: green")
                         logger.info(f"Renamed chat {self.current_chat_id}")
                         dialog.close()
                     except Exception as e:
@@ -247,9 +266,13 @@ class ChatTab:
                         self.db.delete_chat(self.current_chat_id)
                     self.current_chat_id = None
                     await self.refresh_chat_list()
-                    self.chat_history.set_content("")
-                    self.chat_input.value = ""
-                    self.status_label.set_text("Chat deleted").style("color: green")
+                    if self.chat_history is not None:
+                        self.chat_history.set_content("")
+                    if self.chat_input is not None:
+                        self.chat_input.value = ""
+                    if self.status_label is not None:
+                        self.status_label.set_text("Chat deleted")
+                        self.status_label.style("color: green")
                     dialog.close()
                 except Exception as e:
                     logger.error(f"Failed to delete chat: {e}")
@@ -277,15 +300,21 @@ class ChatTab:
                 if extension in FileExtension.image_extensions():
                     # Handle image
                     formatted = format_image_content(filename)
-                    self.chat_input.value += formatted
-                    self.status_label.set_text(f"Image '{filename}' loaded").style("color: green")
+                    if self.chat_input is not None:
+                        self.chat_input.value += formatted
+                    if self.status_label is not None:
+                        self.status_label.set_text(f"Image '{filename}' loaded")
+                        self.status_label.style("color: green")
                     logger.info(f"Uploaded image: {filename}")
                 elif extension in FileExtension.text_extensions():
                     # Handle text file
                     content_str = file_content.decode("utf-8")
                     formatted = format_file_content(filename, content_str)
-                    self.chat_input.value += formatted
-                    self.status_label.set_text(f"File '{filename}' loaded").style("color: green")
+                    if self.chat_input is not None:
+                        self.chat_input.value += formatted
+                    if self.status_label is not None:
+                        self.status_label.set_text(f"File '{filename}' loaded")
+                        self.status_label.style("color: green")
                     logger.info(f"Uploaded file: {filename}")
                 else:
                     ui.notify(f"Unsupported file type: {extension}", type="warning")
@@ -303,6 +332,8 @@ class ChatTab:
             ui.notify("Please select or create a chat first!", type="warning")
             return
 
+        if self.chat_input is None:
+            return
         user_message = self.chat_input.value.strip()
         if not user_message:
             ui.notify("Please enter a message!", type="warning")
@@ -331,7 +362,8 @@ class ChatTab:
             await self.load_chat_messages(self.current_chat_id)
 
             # Clear input
-            self.chat_input.value = ""
+            if self.chat_input is not None:
+                self.chat_input.value = ""
 
             # Prepare for streaming
             messages = self.db.get_chat_messages(self.current_chat_id)
@@ -348,10 +380,12 @@ class ChatTab:
             self.stream_queue = StreamQueue()
 
             # Add assistant header
-            current_html = self.chat_history.content
-            self.chat_history.set_content(
-                current_html + "<div style='margin-bottom: 1em;'><strong>🤖 Assistant:</strong><br>"
-            )
+            if self.chat_history is not None:
+                current_html = self.chat_history.content
+                self.chat_history.set_content(
+                    current_html
+                    + "<div style='margin-bottom: 1em;'><strong>🤖 Assistant:</strong><br>"
+                )
 
             full_response = ""
 
@@ -383,21 +417,31 @@ class ChatTab:
             )
 
             self.is_streaming = True
-            self.send_button.set_enabled(False)
-            self.stop_button.set_enabled(True)
-            self.status_label.set_text("Streaming...").style("color: blue")
+            if self.send_button is not None:
+                self.send_button.set_enabled(False)
+            if self.stop_button is not None:
+                self.stop_button.set_enabled(True)
+            if self.status_label is not None:
+                self.status_label.set_text("Streaming...")
+                self.status_label.style("color: blue")
 
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
             ui.notify(f"Error: {str(e)}", type="negative")
-            self.status_label.set_text("Error").style("color: red")
+            if self.status_label is not None:
+                self.status_label.set_text("Error")
+                self.status_label.style("color: red")
 
     async def stop_streaming(self) -> None:
         """Stop the streaming."""
         if self.streaming_client:
             self.streaming_client.stop_streaming()
             self.is_streaming = False
-            self.send_button.set_enabled(True)
-            self.stop_button.set_enabled(False)
-            self.status_label.set_text("Stopped").style("color: orange")
+            if self.send_button is not None:
+                self.send_button.set_enabled(True)
+            if self.stop_button is not None:
+                self.stop_button.set_enabled(False)
+            if self.status_label is not None:
+                self.status_label.set_text("Stopped")
+                self.status_label.style("color: orange")
             logger.info("Streaming stopped by user")

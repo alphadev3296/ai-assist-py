@@ -54,6 +54,8 @@ class SettingsTab:
 
     async def save_settings(self) -> None:
         """Save the settings."""
+        if self.api_key_input is None or self.model_select is None:
+            return
         api_key = self.api_key_input.value.strip()
         model = self.model_select.value
 
@@ -100,10 +102,14 @@ class SettingsTab:
         try:
             settings = Settings(openai_api_key=api_key, openai_model=model)
             self.db.save_settings(settings)
-            self.status_label.set_text("✓ Settings saved successfully!").style("color: green")
+            if self.status_label is not None:
+                self.status_label.set_text("✓ Settings saved successfully!")
+                self.status_label.style("color: green")
             ui.notify("Settings saved!", type="positive")
             logger.info(f"Settings saved: model={model}")
         except Exception as e:
             logger.error(f"Failed to save settings: {e}")
-            self.status_label.set_text("✗ Failed to save settings").style("color: red")
+            if self.status_label is not None:
+                self.status_label.set_text("✗ Failed to save settings")
+                self.status_label.style("color: red")
             ui.notify(f"Error: {str(e)}", type="negative")
