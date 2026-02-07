@@ -469,6 +469,32 @@ class Database:
             logger.error(f"Failed to get preset fields: {e}")
             return []
 
+    def get_preset_field(self, field_id: int) -> PresetField | None:
+        """Get a single preset field by ID.
+
+        Args:
+            field_id: ID of the field.
+
+        Returns:
+            PresetField object or None if not found.
+        """
+        try:
+            with self.SessionLocal() as session:
+                field = session.execute(
+                    select(PresetFieldModel).where(PresetFieldModel.id == field_id)
+                ).scalar_one_or_none()
+                if field:
+                    return PresetField(
+                        id=field.id,
+                        preset_id=field.preset_id,
+                        field_name=field.field_name,
+                        field_value=field.field_value,
+                    )
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get preset field: {e}")
+            return None
+
     def update_preset_field(self, field_id: int, field_name: str, field_value: str) -> None:
         """Update a preset field.
 

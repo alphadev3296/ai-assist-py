@@ -35,6 +35,10 @@ warn_no_return = true
 check_untyped_defs = true
 strict_equality = true
 
+[[tool.mypy.overrides]]
+module = ["nicegui", "nicegui.*", "sqlalchemy", "sqlalchemy.*"]
+ignore_missing_imports = true
+
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"

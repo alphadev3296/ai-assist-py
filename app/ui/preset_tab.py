@@ -1,14 +1,11 @@
-"""Preset tab UI for the AI Assistant application.
+"""Preset tab UI for the AI Assistant application."""
 
-This module provides UI components and event handling for managing preset templates.
-Users can create reusable prompt templates with custom fields, run them with different
-values, and view response history from previous runs.
-"""
-
+from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
-import FreeSimpleGUI as sg  # type: ignore
 from loguru import logger
+from nicegui import ui
 
 from app.db import Database
 from app.models import Preset
@@ -16,448 +13,372 @@ from app.openai_client import StreamingClient, StreamQueue
 from app.utils import format_preset_messages_for_openai
 
 
-class PresetTabState:
-    """State manager for preset tab.
+class PresetTab:
+    """Preset tab component."""
 
-    Manages streaming state and database connections for preset operations.
-    Tracks active streaming operations per preset to prevent concurrent streams.
-    """
-
-    def __init__(self, db: Database) -> None:
-        """Initialize preset tab state.
+    def __init__(
+        self, db: Database, preset: Preset, on_change_callback: Callable[[], None]
+    ) -> None:
+        """Initialize preset tab.
 
         Args:
-            db: Database instance for preset operations
+            db: Database instance.
+            preset: Preset model.
+            on_change_callback: Callback when preset is modified/deleted.
         """
         self.db = db
+        self.preset = preset
+        self.on_change_callback = on_change_callback
         self.streaming_client: StreamingClient | None = None
         self.stream_queue: StreamQueue | None = None
-        self.is_streaming: dict[int, bool] = {}  # preset_id -> is_streaming
+        self.is_streaming = False
 
+        # UI components
+        self.system_prompt_input: Any = None
+        self.history_area: Any = None
+        self.send_button: Any = None
+        self.stop_button: Any = None
+        self.status_label: Any = None
+        self.fields_container: Any = None
+        self.field_inputs: dict[int, dict[str, Any]] = {}
 
-def create_preset_tab(preset: Preset, db: Database) -> list[list[sg.Element]]:
-    """Create a preset tab layout with configuration and response history.
+    def create_ui(self) -> None:
+        """Create the preset tab layout."""
+        with ui.row().classes("w-full h-full gap-2"):
+            # Left panel - configuration
+            with ui.column().classes("w-1/2 h-full"):
+                ui.markdown(f"**Preset: {self.preset.name}**").classes("mb-2")
 
-    Builds a two-column layout with system prompt editing, field management on the left,
-    and response history from previous runs on the right.
+                with ui.row().classes("gap-2 mb-4"):
+                    ui.button("Rename", on_click=self.rename_preset, icon="edit")
+                    ui.button("Delete", on_click=self.delete_preset, icon="delete")
 
-    Args:
-        preset: Preset instance containing name, system prompt, and ID
-        db: Database instance for loading fields and runs
+                ui.label("System Prompt:").classes("font-bold mt-2")
+                self.system_prompt_input = (
+                    ui.textarea(
+                        value=self.preset.system_prompt, on_change=self.update_system_prompt
+                    )
+                    .classes("w-full")
+                    .props("outlined rows=3")
+                )
 
-    Returns:
-        Complete layout structure as nested list of FreeSimpleGUI elements
-    """
-    # Load fields for this preset
-    fields = db.get_preset_fields(preset.id)
+                ui.label("Fields:").classes("font-bold mt-4")
 
-    # Left panel - configuration
-    left_panel = [
-        [
-            sg.Text(
-                f"Preset: {preset.name}",
-                font=("Arial", 12, "bold"),
-                key=f"-PRESET-{preset.id}-TITLE-",
-            )
-        ],
-        [
-            sg.Button("Rename", key=f"-PRESET-{preset.id}-RENAME-", size=(10, 1)),
-            sg.Button("Delete", key=f"-PRESET-{preset.id}-DELETE-", size=(10, 1)),
-        ],
-        [sg.HorizontalSeparator()],
-        [sg.Text("System Prompt:")],
-        [
-            sg.Multiline(
-                default_text=preset.system_prompt,
-                size=(50, 5),
-                key=f"-PRESET-{preset.id}-SYSPROMPT-",
-                enable_events=True,
-                expand_x=True,
-            )
-        ],
-        [sg.Text("Fields:", font=("Arial", 10, "bold"))],
-    ]
+                # Fields container with scroll
+                with ui.scroll_area().classes(
+                    "w-full h-96 border rounded p-2"
+                ) as self.fields_container:
+                    self.render_fields()
 
-    # Add existing fields
-    for field in fields:
-        left_panel.extend(
-            [
-                [sg.Text("Field Name:")],
-                [
-                    sg.Input(
-                        default_text=field.field_name,
-                        size=(48, 1),
-                        key=f"-PRESET-{preset.id}-FIELD-{field.id}-NAME-",
-                        enable_events=True,
-                        expand_x=True,
-                    ),
-                    sg.Button(
+                ui.button("Add Field", on_click=self.add_field, icon="add").classes("mt-2")
+
+                ui.separator().classes("my-4")
+
+                with ui.row().classes("gap-2 items-center"):
+                    ui.button("Clear Values", on_click=self.clear_values, icon="clear")
+                    self.send_button = ui.button(
+                        "Send", on_click=self.send_preset, icon="send"
+                    ).props("color=primary")
+                    self.stop_button = ui.button(
+                        "Stop", on_click=self.stop_streaming, icon="stop"
+                    ).props("color=negative")
+                    self.stop_button.set_enabled(False)
+
+                self.status_label = ui.label("").classes("mt-2")
+
+            # Right panel - response history
+            with ui.column().classes("flex-1 h-full"):
+                ui.markdown("**Response History**").classes("mb-2")
+
+                with ui.scroll_area().classes("w-full h-full border rounded p-2"):
+                    self.history_area = ui.html("")
+
+        # Load initial history
+        self.refresh_history()
+
+        # Start background task
+        ui.timer(0.1, self.check_streaming)
+
+    def render_fields(self) -> None:
+        """Render all preset fields."""
+        fields = self.db.get_preset_fields(self.preset.id)
+
+        with self.fields_container:
+            self.fields_container.clear()
+            self.field_inputs.clear()
+
+            for field in fields:
+                with ui.card().classes("w-full p-2 mb-2"):
+                    field_name_input = ui.input(
+                        label="Field Name",
+                        value=field.field_name,
+                        on_change=lambda e, fid=field.id: self.update_field_name(fid, e.value),
+                    ).classes("w-full")
+
+                    field_value_input = (
+                        ui.textarea(
+                            label="Value",
+                            value=field.field_value,
+                            on_change=lambda e, fid=field.id: self.update_field_value(fid, e.value),
+                        )
+                        .classes("w-full")
+                        .props("outlined rows=2")
+                    )
+
+                    ui.button(
                         "Remove",
-                        key=f"-PRESET-{preset.id}-FIELD-{field.id}-REMOVE-",
-                        size=(8, 1),
-                    ),
-                ],
-                [sg.Text("Value:")],
-                [
-                    sg.Multiline(
-                        default_text=field.field_value,
-                        size=(50, 3),
-                        key=f"-PRESET-{preset.id}-FIELD-{field.id}-VALUE-",
-                        expand_x=True,
-                        enable_events=True,
+                        on_click=lambda fid=field.id: self.remove_field(fid),
+                        icon="delete",
+                    ).props("color=negative size=sm")
+
+                    self.field_inputs[field.id] = {
+                        "name": field_name_input,
+                        "value": field_value_input,
+                    }
+
+    def update_system_prompt(self, e: Any) -> None:
+        """Update system prompt in database."""
+        new_prompt = self.system_prompt_input.value
+        self.db.update_preset(self.preset.id, self.preset.name, new_prompt)
+        logger.debug(f"Updated system prompt for preset {self.preset.id}")
+
+    def update_field_name(self, field_id: int, new_name: str) -> None:
+        """Update field name."""
+        field = self.db.get_preset_field(field_id)
+        if field:
+            self.db.update_preset_field(field_id, new_name, field.field_value)
+            logger.debug(f"Updated field {field_id} name")
+
+    def update_field_value(self, field_id: int, new_value: str) -> None:
+        """Update field value."""
+        field = self.db.get_preset_field(field_id)
+        if field:
+            self.db.update_preset_field(field_id, field.field_name, new_value)
+            logger.debug(f"Updated field {field_id} value")
+
+    async def add_field(self) -> None:
+        """Add a new field."""
+        with ui.dialog() as dialog, ui.card():
+            ui.markdown("### Add Field")
+            field_name_input = ui.input(label="Field Name").classes("w-96")
+
+            async def confirm_add() -> None:
+                if field_name_input.value.strip():
+                    self.db.add_preset_field(self.preset.id, field_name_input.value.strip(), "")
+                    logger.info(f"Added field to preset {self.preset.id}")
+                    self.render_fields()
+                    dialog.close()
+
+            with ui.row():
+                ui.button("Cancel", on_click=dialog.close)
+                ui.button("Add", on_click=confirm_add).props("color=primary")
+
+        dialog.open()
+
+    async def remove_field(self, field_id: int) -> None:
+        """Remove a field."""
+        with ui.dialog() as dialog, ui.card():
+            ui.markdown("### Confirm Remove")
+            ui.label("Remove this field?")
+
+            async def confirm_remove() -> None:
+                self.db.delete_preset_field(field_id)
+                logger.info(f"Removed field {field_id}")
+                self.render_fields()
+                dialog.close()
+
+            with ui.row():
+                ui.button("Cancel", on_click=dialog.close)
+                ui.button("Remove", on_click=confirm_remove).props("color=negative")
+
+        dialog.open()
+
+    async def clear_values(self) -> None:
+        """Clear all field values."""
+        with ui.dialog() as dialog, ui.card():
+            ui.markdown("### Confirm Clear")
+            ui.label("Clear all field values?")
+
+            async def confirm_clear() -> None:
+                self.db.clear_preset_field_values(self.preset.id)
+                logger.info(f"Cleared field values for preset {self.preset.id}")
+                self.render_fields()
+                dialog.close()
+
+            with ui.row():
+                ui.button("Cancel", on_click=dialog.close)
+                ui.button("Clear", on_click=confirm_clear).props("color=primary")
+
+        dialog.open()
+
+    async def rename_preset(self) -> None:
+        """Rename the preset."""
+        with ui.dialog() as dialog, ui.card():
+            ui.markdown("### Rename Preset")
+            new_name_input = ui.input(label="New Name", value=self.preset.name).classes("w-96")
+
+            async def confirm_rename() -> None:
+                if new_name_input.value.strip():
+                    self.db.update_preset(
+                        self.preset.id, new_name_input.value.strip(), self.preset.system_prompt
                     )
-                ],
-            ]
-        )
+                    logger.info(f"Renamed preset {self.preset.id}")
+                    dialog.close()
+                    self.on_change_callback()
 
-    left_panel.extend(
-        [
-            [sg.Button("Add Field", key=f"-PRESET-{preset.id}-ADDFIELD-")],
-            [sg.HorizontalSeparator()],
-            [
-                sg.Button("Clear Values", key=f"-PRESET-{preset.id}-CLEAR-"),
-                sg.Button("Send", key=f"-PRESET-{preset.id}-SEND-"),
-                sg.Button("Stop", key=f"-PRESET-{preset.id}-STOP-", disabled=True),
-            ],
-            [sg.Text("", key=f"-PRESET-{preset.id}-STATUS-", size=(48, 1))],
-        ]
-    )
+            with ui.row():
+                ui.button("Cancel", on_click=dialog.close)
+                ui.button("Rename", on_click=confirm_rename).props("color=primary")
 
-    # Right panel - response history
-    runs = db.get_preset_runs(preset.id)
-    history_text = ""
-    for i, run in enumerate(runs, 1):
-        history_text += f"━━━ Run {i} ({run.created_at.strftime('%Y-%m-%d %H:%M:%S')}) ━━━\n"
-        history_text += f"{run.response}\n\n"
+        dialog.open()
 
-    right_panel = [
-        [sg.Text("Response History", font=("Arial", 12, "bold"))],
-        [
-            sg.Multiline(
-                default_text=history_text,
-                size=(60, 35),
-                key=f"-PRESET-{preset.id}-HISTORY-",
-                expand_x=True,
-                expand_y=True,
-            )
-        ],
-    ]
+    async def delete_preset(self) -> None:
+        """Delete the preset."""
+        with ui.dialog() as dialog, ui.card():
+            ui.markdown("### Confirm Delete")
+            ui.label(f"Delete preset '{self.preset.name}'?")
+            ui.label("This will delete all fields and history.")
 
-    layout = [
-        [
-            sg.Column(
-                left_panel,
-                vertical_alignment="top",
-                scrollable=True,
-                vertical_scroll_only=True,
-                expand_y=True,
-                size=(400, None),
-            ),
-            sg.VerticalSeparator(),
-            sg.Column(right_panel, vertical_alignment="top", expand_x=True, expand_y=True),
-        ]
-    ]
+            async def confirm_delete() -> None:
+                self.db.delete_preset(self.preset.id)
+                logger.info(f"Deleted preset {self.preset.id}")
+                dialog.close()
+                self.on_change_callback()
 
-    return layout
+            with ui.row():
+                ui.button("Cancel", on_click=dialog.close)
+                ui.button("Delete", on_click=confirm_delete).props("color=negative")
 
+        dialog.open()
 
-def create_new_preset_tab() -> list[list[sg.Element]]:
-    """Create the '+ New Preset' tab layout for creating new presets.
+    def refresh_history(self) -> None:
+        """Refresh the response history display."""
+        runs = self.db.get_preset_runs(self.preset.id)
+        history_html = ""
 
-    Provides a simple form with name input and create button.
+        for i, run in enumerate(runs, 1):
+            history_html += "<div style='margin-bottom: 1.5em;'>"
+            run_timestamp = run.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            history_html += f"<strong>━━━ Run {i} ({run_timestamp}) ━━━</strong><br>"
+            from markdown import markdown
 
-    Returns:
-        Layout structure for new preset creation tab
-    """
-    layout = [
-        [sg.Text("Create New Preset", font=("Arial", 14, "bold"))],
-        [sg.Text("")],
-        [sg.Text("Enter a name for the new preset:")],
-        [sg.Input(key="-NEWPRESET-NAME-", size=(40, 1))],
-        [sg.Text("")],
-        [sg.Button("Create Preset", key="-NEWPRESET-CREATE-")],
-    ]
+            rendered = markdown(run.response)
+            history_html += f"{rendered}"
+            history_html += "</div>"
 
-    return layout
+        self.history_area.set_content(history_html)
 
-
-def refresh_preset_history(window: sg.Window, preset_id: int, db: Database) -> None:
-    """Refresh the response history display for a specific preset.
-
-    Loads all preset runs from database and formats them with timestamps.
-
-    Args:
-        window: Main application window
-        preset_id: ID of preset to refresh
-        db: Database instance for loading runs
-    """
-    runs = db.get_preset_runs(preset_id)
-    history_text = ""
-    for i, run in enumerate(runs, 1):
-        history_text += f"━━━ Run {i} ({run.created_at.strftime('%Y-%m-%d %H:%M:%S')}) ━━━\n"
-        history_text += f"{run.response}\n\n"
-
-    window[f"-PRESET-{preset_id}-HISTORY-"].update(history_text)
-
-
-def handle_preset_events(
-    event: str,
-    values: dict[str, Any],
-    window: sg.Window,
-    state: PresetTabState,
-    on_preset_change: Any,  # Callback to refresh tabs
-) -> None:
-    """Handle all preset tab events including streaming, CRUD operations, and field management.
-
-    Processes events for:
-    - Streaming token updates and completion
-    - System prompt and field value updates
-    - Field add/remove operations
-    - Preset rename/delete operations
-    - Send/stop streaming commands
-    - New preset creation
-
-    Args:
-        event: FreeSimpleGUI event string (e.g., '-PRESET-123-SEND-')
-        values: Current window values dictionary
-        window: Main application window
-        state: Preset tab state manager
-        on_preset_change: Callback function to trigger tab refresh after modifications
-    """
-    # Check for streaming updates for any preset
-    for preset_id, is_streaming in list(state.is_streaming.items()):
-        if is_streaming and state.stream_queue:
-            token = state.stream_queue.get_token()
-            if token is not None:
-                # Append token to history
-                current = window[f"-PRESET-{preset_id}-HISTORY-"].get()
-                window[f"-PRESET-{preset_id}-HISTORY-"].update(current + token)
-            elif state.stream_queue.is_complete():
-                # Streaming complete
-                state.is_streaming[preset_id] = False
-                window[f"-PRESET-{preset_id}-SEND-"].update(disabled=False)
-                window[f"-PRESET-{preset_id}-STOP-"].update(disabled=True)
-                window[f"-PRESET-{preset_id}-STATUS-"].update("", text_color="black")
-            elif state.stream_queue.has_error():
-                # Streaming error
-                error = state.stream_queue.get_error()
-                state.is_streaming[preset_id] = False
-                window[f"-PRESET-{preset_id}-SEND-"].update(disabled=False)
-                window[f"-PRESET-{preset_id}-STOP-"].update(disabled=True)
-                window[f"-PRESET-{preset_id}-STATUS-"].update("Error occurred", text_color="red")
-                sg.popup_error(f"Error during streaming:\n{str(error)}", title="Error")
-
-    # Parse event to extract preset_id and action
-    if event.startswith("-PRESET-") and event != "-NEWPRESET-NAME-":
-        parts = event.split("-")
-        if len(parts) >= 4:
-            try:
-                preset_id = int(parts[2])
-            except ValueError:
-                return
-
-            # Handle system prompt updates
-            if event.endswith("-SYSPROMPT-"):
-                system_prompt = values[event]
-                preset = state.db.get_preset(preset_id)
-                if preset:
-                    state.db.update_preset(preset_id, preset.name, system_prompt)
-                    logger.debug(f"Updated system prompt for preset {preset_id}")
-
-            # Handle field updates
-            elif "-FIELD-" in event and event.endswith("-NAME-"):
-                # Field name updated
-                field_id = int(parts[4])
-                field_name = values[event]
-                value_key = f"-PRESET-{preset_id}-FIELD-{field_id}-VALUE-"
-                field_value = values.get(value_key, "")
-                state.db.update_preset_field(field_id, field_name, field_value)
-                logger.debug(f"Updated field {field_id} name")
-
-            elif "-FIELD-" in event and event.endswith("-VALUE-"):
-                # Field value updated
-                field_id = int(parts[4])
-                field_value = values[event]
-                name_key = f"-PRESET-{preset_id}-FIELD-{field_id}-NAME-"
-                field_name = values.get(name_key, "")
-                state.db.update_preset_field(field_id, field_name, field_value)
-                logger.debug(f"Updated field {field_id} value")
-
-            # Handle field removal
-            elif "-FIELD-" in event and event.endswith("-REMOVE-"):
-                field_id = int(parts[4])
-                response = sg.popup_yes_no(
-                    "Are you sure you want to remove this field?",
-                    title="Confirm Remove",
-                )
-                if response == "Yes":
-                    state.db.delete_preset_field(field_id)
-                    logger.info(f"Removed field {field_id}")
-                    on_preset_change()  # Refresh tabs
-
-            # Handle add field
-            elif event.endswith("-ADDFIELD-"):
-                field_name = sg.popup_get_text(
-                    "Enter field name:",
-                    title="Add Field",
-                )
-                if field_name and field_name.strip():
-                    state.db.add_preset_field(preset_id, field_name.strip(), "")
-                    logger.info(f"Added field to preset {preset_id}")
-                    on_preset_change()  # Refresh tabs
-
-            # Handle clear values
-            elif event.endswith("-CLEAR-"):
-                response = sg.popup_yes_no(
-                    "Are you sure you want to clear all field values?",
-                    title="Confirm Clear",
-                )
-                if response == "Yes":
-                    state.db.clear_preset_field_values(preset_id)
-                    logger.info(f"Cleared field values for preset {preset_id}")
-                    on_preset_change()  # Refresh tabs
-
-            # Handle rename
-            elif event.endswith("-RENAME-"):
-                preset = state.db.get_preset(preset_id)
-                if preset:
-                    new_name = sg.popup_get_text(
-                        "Enter new preset name:",
-                        title="Rename Preset",
-                        default_text=preset.name,
-                    )
-                    if new_name and new_name.strip():
-                        state.db.update_preset(preset_id, new_name.strip(), preset.system_prompt)
-                        logger.info(f"Renamed preset {preset_id}")
-                        on_preset_change()  # Refresh tabs
-
-            # Handle delete
-            elif event.endswith("-DELETE-"):
-                preset = state.db.get_preset(preset_id)
-                if preset:
-                    response = sg.popup_yes_no(
-                        f"Are you sure you want to delete preset '{preset.name}'?\n\n"
-                        f"This will also delete all fields and response history.",
-                        title="Confirm Delete",
-                    )
-                    if response == "Yes":
-                        state.db.delete_preset(preset_id)
-                        logger.info(f"Deleted preset {preset_id}")
-                        on_preset_change()  # Refresh tabs
-
-            # Handle send
-            elif event.endswith("-SEND-"):
-                # Get settings
-                settings = state.db.get_settings()
-                if not settings.openai_api_key:
-                    sg.popup_error(
-                        "Please configure your OpenAI API key in Settings!", title="Error"
-                    )
-                    return
-
-                # Get preset and fields
-                preset = state.db.get_preset(preset_id)
-                if not preset:
-                    return
-
-                fields = state.db.get_preset_fields(preset_id)
-
-                # Validate fields have values
-                if not fields:
-                    sg.popup_error("Please add at least one field to the preset!", title="Error")
-                    return
-
-                field_data = []
-                for field in fields:
-                    # Get current values from UI
-                    name_key = f"-PRESET-{preset_id}-FIELD-{field.id}-NAME-"
-                    value_key = f"-PRESET-{preset_id}-FIELD-{field.id}-VALUE-"
-                    field_name = values.get(name_key, field.field_name)
-                    field_value = values.get(value_key, field.field_value)
-                    field_data.append((field_name, field_value))
-
-                try:
-                    # Prepare messages for OpenAI
-                    system_prompt = values.get(
-                        f"-PRESET-{preset_id}-SYSPROMPT-", preset.system_prompt
-                    )
-                    formatted_messages = format_preset_messages_for_openai(
-                        system_prompt, field_data
-                    )
-
-                    # Setup streaming
-                    state.streaming_client = StreamingClient(
-                        api_key=settings.openai_api_key,
-                        model=settings.openai_model,
-                    )
-                    state.stream_queue = StreamQueue()
-
-                    # Add run header to history
-                    current = window[f"-PRESET-{preset_id}-HISTORY-"].get()
-                    from datetime import datetime
-
-                    run_header = f"\n━━━ Run ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ━━━\n"
-                    window[f"-PRESET-{preset_id}-HISTORY-"].update(current + run_header)
-
-                    full_response = ""
-
-                    def on_token(token: str) -> None:
-                        nonlocal full_response
-                        full_response += token
-                        if state.stream_queue:
-                            state.stream_queue.add_token(token)
-
-                    def on_complete(response: str) -> None:
-                        # Save preset run to database
-                        state.db.add_preset_run(preset_id, full_response)
-                        if state.stream_queue:
-                            state.stream_queue.mark_complete()
-                        logger.info(f"Preset {preset_id} run completed")
-
-                    def on_error(error: Exception) -> None:
-                        if state.stream_queue:
-                            state.stream_queue.mark_error(error)
-
-                    # Start streaming
-                    state.streaming_client.stream_chat_completion(
-                        messages=formatted_messages,
-                        on_token=on_token,
-                        on_complete=on_complete,
-                        on_error=on_error,
-                    )
-
-                    state.is_streaming[preset_id] = True
-                    window[f"-PRESET-{preset_id}-SEND-"].update(disabled=True)
-                    window[f"-PRESET-{preset_id}-STOP-"].update(disabled=False)
-                    window[f"-PRESET-{preset_id}-STATUS-"].update("Streaming...", text_color="blue")
-
-                except Exception as e:
-                    logger.error(f"Failed to send preset: {e}")
-                    sg.popup_error(f"Failed to send preset:\n{str(e)}", title="Error")
-                    window[f"-PRESET-{preset_id}-STATUS-"].update("Error", text_color="red")
-
-            # Handle stop
-            elif event.endswith("-STOP-"):
-                if state.streaming_client:
-                    state.streaming_client.stop_streaming()
-                    state.is_streaming[preset_id] = False
-                    window[f"-PRESET-{preset_id}-SEND-"].update(disabled=False)
-                    window[f"-PRESET-{preset_id}-STOP-"].update(disabled=True)
-                    window[f"-PRESET-{preset_id}-STATUS-"].update("Stopped", text_color="orange")
-                    logger.info(f"Preset {preset_id} streaming stopped")
-
-    # Handle new preset creation
-    elif event == "-NEWPRESET-CREATE-":
-        preset_name = values["-NEWPRESET-NAME-"].strip()
-        if not preset_name:
-            sg.popup_error("Please enter a preset name!", title="Error")
+    async def check_streaming(self) -> None:
+        """Check for streaming updates."""
+        if not self.is_streaming or not self.stream_queue:
             return
 
+        token = self.stream_queue.get_token()
+        if token is not None:
+            # Append token
+            current_html = self.history_area.content
+            self.history_area.set_content(current_html + token.replace("\n", "<br>"))
+        elif self.stream_queue.is_complete():
+            # Streaming complete
+            self.is_streaming = False
+            self.send_button.set_enabled(True)
+            self.stop_button.set_enabled(False)
+            self.status_label.set_text("")
+            self.refresh_history()
+        elif self.stream_queue.has_error():
+            # Streaming error
+            error = self.stream_queue.get_error()
+            self.is_streaming = False
+            self.send_button.set_enabled(True)
+            self.stop_button.set_enabled(False)
+            self.status_label.set_text("Error occurred").style("color: red")
+            ui.notify(f"Error: {str(error)}", type="negative")
+
+    async def send_preset(self) -> None:
+        """Send preset to OpenAI."""
+        settings = self.db.get_settings()
+        if not settings.openai_api_key:
+            ui.notify("Please configure your OpenAI API key in Settings!", type="warning")
+            return
+
+        fields = self.db.get_preset_fields(self.preset.id)
+        if not fields:
+            ui.notify("Please add at least one field!", type="warning")
+            return
+
+        # Get current field values from UI
+        field_data = []
+        for field in fields:
+            if field.id in self.field_inputs:
+                name = self.field_inputs[field.id]["name"].value
+                value = self.field_inputs[field.id]["value"].value
+                field_data.append((name, value))
+            else:
+                field_data.append((field.field_name, field.field_value))
+
         try:
-            preset_id = state.db.create_preset(preset_name, "You are a helpful assistant.")
-            logger.info(f"Created new preset: {preset_id}")
-            window["-NEWPRESET-NAME-"].update("")
-            on_preset_change()  # Refresh tabs
+            # Prepare messages
+            system_prompt = self.system_prompt_input.value
+            formatted_messages = format_preset_messages_for_openai(system_prompt, field_data)
+
+            # Setup streaming
+            self.streaming_client = StreamingClient(
+                api_key=settings.openai_api_key,
+                model=settings.openai_model,
+            )
+            self.stream_queue = StreamQueue()
+
+            # Add run header
+            current_html = self.history_area.content
+            run_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            run_header = (
+                f"<div style='margin-bottom: 1.5em;'>"
+                f"<strong>━━━ Run ({run_timestamp}) ━━━</strong><br>"
+            )
+            self.history_area.set_content(current_html + run_header)
+
+            full_response = ""
+
+            def on_token(token: str) -> None:
+                nonlocal full_response
+                full_response += token
+                if self.stream_queue:
+                    self.stream_queue.add_token(token)
+
+            def on_complete(response: str) -> None:
+                self.db.add_preset_run(self.preset.id, full_response)
+                if self.stream_queue:
+                    self.stream_queue.mark_complete()
+                logger.info(f"Preset {self.preset.id} run completed")
+
+            def on_error(error: Exception) -> None:
+                if self.stream_queue:
+                    self.stream_queue.mark_error(error)
+
+            # Start streaming
+            self.streaming_client.stream_chat_completion(
+                messages=formatted_messages,
+                on_token=on_token,
+                on_complete=on_complete,
+                on_error=on_error,
+            )
+
+            self.is_streaming = True
+            self.send_button.set_enabled(False)
+            self.stop_button.set_enabled(True)
+            self.status_label.set_text("Streaming...").style("color: blue")
+
         except Exception as e:
-            logger.error(f"Failed to create preset: {e}")
-            sg.popup_error(f"Failed to create preset:\n{str(e)}", title="Error")
+            logger.error(f"Failed to send preset: {e}")
+            ui.notify(f"Error: {str(e)}", type="negative")
+            self.status_label.set_text("Error").style("color: red")
+
+    async def stop_streaming(self) -> None:
+        """Stop the streaming."""
+        if self.streaming_client:
+            self.streaming_client.stop_streaming()
+            self.is_streaming = False
+            self.send_button.set_enabled(True)
+            self.stop_button.set_enabled(False)
+            self.status_label.set_text("Stopped").style("color: orange")
+            logger.info(f"Preset {self.preset.id} streaming stopped")

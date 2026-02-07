@@ -12,7 +12,9 @@ def run_command(cmd: list[str], description: str) -> bool:
     print(f"{'=' * 60}")
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
         print(result.stdout)
         if result.stderr:
             print(result.stderr)

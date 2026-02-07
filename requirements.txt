@@ -1,5 +1,5 @@
 openai>=1.54.0
-FreeSimpleGUI>=5.1.1
+nicegui>=2.10.0
 loguru>=0.7.2
 sqlalchemy>=2.0.25
 pydantic>=2.8.0

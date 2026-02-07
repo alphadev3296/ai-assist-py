@@ -2,18 +2,13 @@
 
 from pathlib import Path
 
-import FreeSimpleGUI as sg  # type: ignore
 from loguru import logger
+from nicegui import ui
 
 from app.db import Database
-from app.ui.chat_tab import ChatTabState, create_chat_tab, handle_chat_events
-from app.ui.preset_tab import (
-    PresetTabState,
-    create_new_preset_tab,
-    create_preset_tab,
-    handle_preset_events,
-)
-from app.ui.settings_tab import create_settings_tab, handle_settings_events
+from app.ui.chat_tab import ChatTab
+from app.ui.preset_tab import PresetTab
+from app.ui.settings_tab import SettingsTab
 
 
 class AIAssistantApp:
@@ -27,13 +22,11 @@ class AIAssistantApp:
         # Initialize database
         self.db = Database()
 
-        # Initialize state
-        self.chat_state = ChatTabState(self.db)
-        self.preset_state = PresetTabState(self.db)
-
-        # Create main window
-        self.window: sg.Window | None = None
-        self._create_window()
+        # Store tabs for updates
+        self.chat_tab: ChatTab | None = None
+        self.settings_tab: SettingsTab | None = None
+        self.preset_tabs: dict[int, PresetTab] = {}
+        self.tabs_container = None
 
     def _setup_logging(self) -> None:
         """Setup application logging."""
@@ -50,130 +43,89 @@ class AIAssistantApp:
         )
         logger.info("Application started")
 
-    def _create_window(self) -> None:
-        """Create the main application window."""
-        sg.theme("LightBlue3")
+    def refresh_presets(self) -> None:
+        """Refresh preset tabs."""
+        if self.tabs_container:
+            self.build_ui()
 
-        # Create tab groups
-        chat_layout = create_chat_tab(self.db)
-        settings_layout = create_settings_tab(self.db)
+    def build_ui(self) -> None:
+        """Build the main user interface."""
+        with ui.tabs().classes("w-full") as tabs:
+            chat_tab_btn = ui.tab("Chat", icon="chat")
+            settings_tab_btn = ui.tab("Settings", icon="settings")
 
-        # Load presets and create tabs
-        presets = self.db.get_all_presets()
-        preset_tabs = []
+            # Load presets
+            presets = self.db.get_all_presets()
+            preset_tab_btns = []
+            for preset in presets:
+                preset_tab_btns.append(ui.tab(preset.name, icon="description"))
 
-        for preset in presets:
-            preset_layout = create_preset_tab(preset, self.db)
-            preset_tabs.append(
-                sg.Tab(
-                    preset.name,
-                    preset_layout,
-                    key=f"-TAB-PRESET-{preset.id}-",
-                )
-            )
+            new_preset_tab_btn = ui.tab("+ New Preset", icon="add")
 
-        # Add "New Preset" tab
-        new_preset_layout = create_new_preset_tab()
-        preset_tabs.append(sg.Tab("+ New Preset", new_preset_layout, key="-TAB-NEWPRESET-"))
+        with ui.tab_panels(tabs, value=chat_tab_btn).classes("w-full h-full"):
+            # Chat tab
+            with ui.tab_panel(chat_tab_btn).classes("w-full"):
+                self.chat_tab = ChatTab(self.db)
+                self.chat_tab.create_ui()
 
-        # Combine all tabs
-        all_tabs = [
-            sg.Tab("Chat", chat_layout, key="-TAB-CHAT-"),
-            sg.Tab("Settings", settings_layout, key="-TAB-SETTINGS-"),
-        ] + preset_tabs
+            # Settings tab
+            with ui.tab_panel(settings_tab_btn).classes("w-full"):
+                self.settings_tab = SettingsTab(self.db)
+                self.settings_tab.create_ui()
 
-        layout = [
-            [
-                sg.TabGroup(
-                    [all_tabs],
-                    key="-TABGROUP-",
-                    enable_events=True,
-                    expand_x=True,
-                    expand_y=True,
-                )
-            ]
-        ]
+            # Preset tabs
+            for preset, tab_btn in zip(presets, preset_tab_btns, strict=True):
+                with ui.tab_panel(tab_btn).classes("w-full"):
+                    preset_tab = PresetTab(self.db, preset, self.refresh_presets)
+                    preset_tab.create_ui()
+                    self.preset_tabs[preset.id] = preset_tab
 
-        self.window = sg.Window(
-            "AI Assistant",
-            layout,
-            size=(1200, 700),
-            finalize=True,
-            resizable=True,
-        )
+            # New preset tab
+            with ui.tab_panel(new_preset_tab_btn).classes("w-full"):
+                self.create_new_preset_tab()
 
-        logger.info("Main window created")
+    def create_new_preset_tab(self) -> None:
+        """Create the new preset tab UI."""
+        with ui.column().classes("w-full items-center p-8"):
+            ui.markdown("### Create New Preset").classes("mb-4")
 
-    def _refresh_window(self) -> None:
-        """Refresh the entire window (recreate with updated presets)."""
-        if self.window:
-            # Remember active tab
-            active_tab = None
-            try:
-                active_tab = self.window["-TABGROUP-"].get()
-            except Exception:
-                pass
+            preset_name_input = ui.input(
+                label="Preset Name", placeholder="Enter preset name..."
+            ).classes("w-96")
 
-            self.window.close()
-            self._create_window()
+            async def create_preset() -> None:
+                name = preset_name_input.value.strip()
+                if not name:
+                    ui.notify("Please enter a preset name!", type="warning")
+                    return
 
-            # Restore active tab
-            if active_tab and self.window:
                 try:
-                    self.window["-TABGROUP-"].Widget.select(active_tab)
-                except Exception:
-                    pass
-        else:
-            self._create_window()
-        logger.info("Window refreshed")
+                    preset_id = self.db.create_preset(name, "You are a helpful assistant.")
+                    logger.info(f"Created new preset: {preset_id}")
+                    ui.notify(f"Preset '{name}' created!", type="positive")
+                    preset_name_input.value = ""
+                    self.refresh_presets()
+                except Exception as e:
+                    logger.error(f"Failed to create preset: {e}")
+                    ui.notify(f"Error: {str(e)}", type="negative")
+
+            ui.button("Create Preset", on_click=create_preset, icon="add").classes("mt-4")
 
     def run(self) -> None:
-        """Run the application main loop."""
-        if not self.window:
-            return
+        """Run the application."""
+        logger.info("Starting NiceGUI application")
 
-        logger.info("Entering main event loop")
+        # Build UI
+        self.build_ui()
 
-        # Timer for checking streaming updates
-        timeout = 100  # milliseconds
-
-        while True:
-            event, values = self.window.read(timeout=timeout)
-
-            if event == sg.WIN_CLOSED:
-                break
-
-            # Handle chat tab events
-            if event and (event.startswith("-CHAT-") or event in ["Rename Chat", "Delete Chat"]):
-                handle_chat_events(event, values, self.window, self.chat_state)
-
-            # Handle settings tab events
-            elif event and event.startswith("-SETTINGS-"):
-                handle_settings_events(event, values, self.window, self.db)
-
-            # Handle preset tab events
-            elif event and (event.startswith("-PRESET-") or event.startswith("-NEWPRESET-")):
-                handle_preset_events(
-                    event,
-                    values,
-                    self.window,
-                    self.preset_state,
-                    on_preset_change=self._refresh_window,
-                )
-
-            # Check for streaming updates even without explicit events
-            if self.chat_state.is_streaming:
-                handle_chat_events("", values, self.window, self.chat_state)
-
-            for preset_id in list(self.preset_state.is_streaming.keys()):
-                if self.preset_state.is_streaming.get(preset_id):
-                    handle_preset_events(
-                        "", values, self.window, self.preset_state, self._refresh_window
-                    )
-
-        logger.info("Application closing")
-        self.window.close()
-        self.db.close()
+        # Run with native window mode
+        ui.run(
+            title="AI Assistant",
+            native=True,
+            window_size=(1400, 900),
+            reload=False,
+            show=True,
+        )
 
     def __del__(self) -> None:
         """Cleanup on deletion."""

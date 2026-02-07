@@ -2,8 +2,8 @@
 
 from typing import Any
 
-import FreeSimpleGUI as sg  # type: ignore
 from loguru import logger
+from nicegui import ui
 
 from app.db import Database
 from app.enums import OpenAIModel
@@ -11,107 +11,99 @@ from app.models import Settings
 from app.utils import validate_api_key
 
 
-def create_settings_tab(db: Database) -> list[list[sg.Element]]:
-    """Create the settings tab layout.
+class SettingsTab:
+    """Settings tab component."""
 
-    Args:
-        db: Database instance.
+    def __init__(self, db: Database) -> None:
+        """Initialize settings tab.
 
-    Returns:
-        Layout for settings tab.
-    """
-    # Load current settings
-    settings = db.get_settings()
+        Args:
+            db: Database instance.
+        """
+        self.db = db
+        self.api_key_input: Any = None
+        self.model_select: Any = None
+        self.status_label: Any = None
 
-    layout = [
-        [sg.Text("OpenAI API Configuration", font=("Arial", 14, "bold"))],
-        [sg.HorizontalSeparator()],
-        [sg.Text("")],
-        [
-            sg.Text("API Key:", size=(15, 1)),
-            sg.Input(
-                default_text=settings.openai_api_key,
-                key="-SETTINGS-API-KEY-",
-                size=(50, 1),
-                password_char="*",
-                expand_x=True,
-            ),
-        ],
-        [sg.Text("")],
-        [
-            sg.Text("Model:", size=(15, 1)),
-            sg.Combo(
-                values=OpenAIModel.get_all_values(),
-                default_value=settings.openai_model,
-                key="-SETTINGS-MODEL-",
-                size=(30, 1),
-                readonly=True,
-                expand_x=True,
-            ),
-        ],
-        [sg.Text("")],
-        [
-            sg.Button("Save Settings", key="-SETTINGS-SAVE-"),
-            sg.Text("", key="-SETTINGS-STATUS-", size=(50, 1)),
-        ],
-    ]
+    def create_ui(self) -> None:
+        """Create the settings tab layout."""
+        settings = self.db.get_settings()
 
-    return layout
+        with ui.column().classes("w-full max-w-2xl mx-auto p-8"):
+            ui.markdown("## OpenAI API Configuration").classes("mb-4")
 
+            ui.separator().classes("mb-6")
 
-def handle_settings_events(
-    event: str,
-    values: dict[str, Any],
-    window: sg.Window,
-    db: Database,
-) -> None:
-    """Handle events in the settings tab.
+            self.api_key_input = ui.input(
+                label="API Key",
+                value=settings.openai_api_key,
+                password=True,
+                password_toggle_button=True,
+            ).classes("w-full mb-4")
 
-    Args:
-        event: Event string.
-        values: Values dictionary.
-        window: Main window.
-        db: Database instance.
-    """
-    if event == "-SETTINGS-SAVE-":
-        api_key = values["-SETTINGS-API-KEY-"].strip()
-        model = values["-SETTINGS-MODEL-"]
+            self.model_select = ui.select(
+                label="Model", options=OpenAIModel.get_all_values(), value=settings.openai_model
+            ).classes("w-full mb-6")
+
+            with ui.row().classes("gap-2 items-center"):
+                ui.button("Save Settings", on_click=self.save_settings, icon="save").props(
+                    "color=primary"
+                )
+
+                self.status_label = ui.label("").classes("ml-4")
+
+    async def save_settings(self) -> None:
+        """Save the settings."""
+        api_key = self.api_key_input.value.strip()
+        model = self.model_select.value
 
         # Validate inputs
         if not api_key:
-            sg.popup_error("API Key is required!", title="Validation Error")
+            ui.notify("API Key is required!", type="warning")
             return
 
         if not model:
-            sg.popup_error("Model selection is required!", title="Validation Error")
+            ui.notify("Model selection is required!", type="warning")
             return
 
         if not validate_api_key(api_key):
-            sg.popup_error(
-                "Invalid API Key format!\n\n"
-                "API key should start with 'sk-' and be at least 20 characters long.",
-                title="Validation Error",
+            ui.notify(
+                "Invalid API Key format! Key should start with 'sk-' and be "
+                "at least 20 characters long.",
+                type="negative",
             )
             return
 
         # Confirm if overwriting existing API key
-        existing_settings = db.get_settings()
+        existing_settings = self.db.get_settings()
         if existing_settings.openai_api_key and existing_settings.openai_api_key != api_key:
-            response = sg.popup_yes_no(
-                "You are about to overwrite the existing API key.\n\nDo you want to continue?",
-                title="Confirm API Key Change",
-            )
-            if response != "Yes":
-                logger.info("API key change cancelled by user")
-                return
+            # Use dialog for confirmation
+            with ui.dialog() as dialog, ui.card():
+                ui.markdown("### Confirm API Key Change")
+                ui.label("You are about to overwrite the existing API key.")
+                ui.label("Do you want to continue?")
 
-        # Save settings
+                async def confirm_save() -> None:
+                    await self.perform_save(api_key, model)
+                    dialog.close()
+
+                with ui.row():
+                    ui.button("Cancel", on_click=dialog.close)
+                    ui.button("Continue", on_click=confirm_save).props("color=primary")
+
+            dialog.open()
+        else:
+            await self.perform_save(api_key, model)
+
+    async def perform_save(self, api_key: str, model: str) -> None:
+        """Perform the actual save operation."""
         try:
             settings = Settings(openai_api_key=api_key, openai_model=model)
-            db.save_settings(settings)
-            window["-SETTINGS-STATUS-"].update("✓ Settings saved successfully!", text_color="green")
+            self.db.save_settings(settings)
+            self.status_label.set_text("✓ Settings saved successfully!").style("color: green")
+            ui.notify("Settings saved!", type="positive")
             logger.info(f"Settings saved: model={model}")
         except Exception as e:
             logger.error(f"Failed to save settings: {e}")
-            sg.popup_error(f"Failed to save settings:\n{str(e)}", title="Error")
-            window["-SETTINGS-STATUS-"].update("✗ Failed to save settings", text_color="red")
+            self.status_label.set_text("✗ Failed to save settings").style("color: red")
+            ui.notify(f"Error: {str(e)}", type="negative")
